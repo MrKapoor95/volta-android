@@ -24,7 +24,10 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
-open class IsmartException(message: String, cause: Throwable? = null) : Exception(message, cause)
+open class IsmartException(message: String, cause: Throwable? = null) : Exception(message, cause) {
+    /** What to show on screen; the [message] by default. */
+    open val userMessage: String? get() = message
+}
 
 /** Server rejected the credentials (bad password, unregistered, daily limit). Never retried automatically. */
 class LoginRejectedException(message: String) : IsmartException(message)
@@ -40,6 +43,16 @@ class CommandIndeterminateException(message: String) : IsmartException(message)
 
 /** MG said the control PIN is wrong. Wrong tries count against MG's limit, so it is never retried. */
 class WrongPinException(message: String) : IsmartException(message)
+
+/**
+ * MG's server answered a status request with a result code we don't know (a Windsor got 15016), with the reason it
+ * gave when it sent one. A read failed, nothing was sent to the car.
+ */
+class ServerResultException(val label: String, val result: Int, val serverMessage: String?) : IsmartException("$label failed: ${serverMessage?.let { "$it (result $result)" } ?: "result $result"}") {
+    override val userMessage: String
+        get() = serverMessage?.let { "MG: $it (code $result)" }
+            ?: "MG's server couldn't get the car's ${label.lowercase()} (code $result). Try again in a minute."
+}
 
 class NotOwnerException : IsmartException("This MG account is a shared (secondary) account; battery data needs the owner account")
 
@@ -218,8 +231,15 @@ class MgIsmartClient(
             val status = poll("Status", v, unavailable = emptySet()) { s, uidTok, ev -> Tap.statusRequest(uidTok.uid, uidTok.token, s, ev, nowS()) }
                 ?.let { Tap.decodeStatusApp(it) } ?: throw IsmartException("The car did not answer (it may be in a weak signal area)")
             val charge = if (includeCharge) {
-                poll("Charge", v, unavailable = setOf(5), tolerateFraming = true) { s, uidTok, ev -> Tap.chargeRequest(uidTok.uid, uidTok.token, s, ev, nowS()) }
-                    ?.takeIf { it.size == Tap.CHARGE_APP_LEN }?.let { ChargeStatus.from(Tap.decodeChargeApp(it)) }
+                // Decoded by shape, not by the Windsor's 63 bytes: another model's frame may be longer (a charger ID,
+                // extra fields), and dropping it leaves the battery to the status frame. A result code we don't know
+                // on this request costs only the charging figures: the status has already arrived.
+                try {
+                    poll("Charge", v, unavailable = setOf(5), tolerateFraming = true) { s, uidTok, ev -> Tap.chargeRequest(uidTok.uid, uidTok.token, s, ev, nowS()) }
+                        ?.let { Tap.decodeChargeAppOrNull(it) }?.let { ChargeStatus.from(it) }
+                } catch (ignored: ServerResultException) {
+                    null
+                }
             } else {
                 null
             }
@@ -261,7 +281,7 @@ class MgIsmartClient(
 
                     0, 4, 6 -> Unit
 
-                    else -> throw IsmartException("$label failed: result $result")
+                    else -> throw ServerResultException(label, result, d.errorText())
                 }
                 res.app?.let { return it }
                 eventId = d.eventId ?: eventId

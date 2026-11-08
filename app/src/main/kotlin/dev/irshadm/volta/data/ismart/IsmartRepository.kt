@@ -226,6 +226,9 @@ class IsmartRepository @Inject constructor(
                     )
                 }
             }.let { st ->
+                // No battery level in this read (see [map]): keep the last one rather than showing none.
+                if (st.soc == null && before?.soc != null) st.copy(soc = before.soc) else st
+            }.let { st ->
                 // A parked time saved before a logged drive is stale.
                 val lastDrive = runCatching { drives.lastDriveEnd() }.getOrNull()
                 if (st.ignitionOn?.value == false && lastDrive != null && lastDrive > (st.ignitionChangedAtMillis ?: 0L)) st.copy(ignitionChangedAtMillis = lastDrive) else st
@@ -245,7 +248,8 @@ class IsmartRepository @Inject constructor(
             runCatching { cacheFile.writeText(cacheJson.encodeToString(VehicleStatus.serializer(), status)) }
             val previous = socRepository.latest.first()
             runCatching { charges.onReading(status, previous?.takeIf { it.source == dev.irshadm.volta.core.model.SocSource.ISMART }) }
-            status.soc?.value?.let { socRepository.add(it) }
+            // Only a level this read brought; one carried over from the last read is already stored.
+            if (status.soc !== before?.soc) status.soc?.value?.let { socRepository.add(it) }
             // The pack size comes from the car, not the Windsor 38 default: SoC and energy from the same charge frame.
             r.charge?.let { c -> c.socPercent?.let { soc -> runCatching { settings.learnCapacity(soc, c.batteryEnergyKwh) } } }
             runCatching { drives.onReading(status, before) }
@@ -291,7 +295,10 @@ class IsmartRepository @Inject constructor(
         val s = r.snapshot
         val c = r.charge
         val at = s.statusTime * 1000
-        val socPct = c?.socPercent ?: s.socPercent?.toDouble()
+        // The charging frame's level is the real one. Without it the status frame's fuel level stands in, which the
+        // Windsor fills with the battery level but other models leave at 0: a ZS EV showed "Battery 0 %, not plugged
+        // in". A car at 0 % couldn't answer at all, so 0 there means "not reported".
+        val socPct = c?.socPercent ?: s.socPercent?.takeIf { it > 0 }?.toDouble()
         val soc = socPct?.let {
             SocReading(
                 it.coerceIn(0.0, 100.0),
@@ -349,7 +356,7 @@ class IsmartRepository @Inject constructor(
         is LoginRejectedException -> "MG rejected the sign-in: ${e.message}"
         is LoginThrottledException -> e.message ?: "Signed in too often this hour"
         is SignedOutException -> "Signed out by another app"
-        is IsmartException -> e.message ?: "MG i-SMART error"
+        is IsmartException -> e.userMessage ?: "MG i-SMART error"
         is IOException -> "No connection to MG servers"
         is IllegalArgumentException -> e.message ?: "Check the details"
         else -> e.message ?: e.javaClass.simpleName
