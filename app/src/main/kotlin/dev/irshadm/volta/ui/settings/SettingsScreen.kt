@@ -151,6 +151,8 @@ private fun Header(p: Page, onBack: () -> Unit) {
             }
         }
         Text(p.title, style = MaterialTheme.typography.headlineLarge, modifier = Modifier.padding(start = 4.dp, top = 2.dp))
+        // The version up front, so a bug report can say which build it came from.
+        if (p == Page.Main) Text("Volta ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodySmall, color = VoltaColors.Muted, modifier = Modifier.padding(start = 4.dp))
     }
 }
 
