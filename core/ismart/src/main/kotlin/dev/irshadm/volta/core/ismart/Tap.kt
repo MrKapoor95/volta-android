@@ -41,7 +41,11 @@ object Tap {
         val testFlag: Int? = null,
         val result: Int? = null,
         val errorMessage: ByteArray? = null,
-    )
+    ) {
+        /** The server's reason for a non-zero [result], as readable text, or null when it sent none. */
+        fun errorText(): String? = errorMessage?.toString(Charsets.UTF_8)
+            ?.filter { it == ' ' || !it.isISOControl() }?.trim()?.take(200)?.takeIf { it.isNotEmpty() }
+    }
 
     fun encodeDispatcher(d: Dispatcher): ByteArray {
         val w = BitWriter()
@@ -436,6 +440,18 @@ object Tap {
         val fotaLowestVoltage: Int?,
         val mileage: Long,
     )
+
+    /**
+     * The charging frame from any model, or null when [app] isn't one. The Windsor's frame is 63 bytes, but the
+     * length moves with the optional fields (a charger ID string, extra counters), so it is checked by decoding:
+     * it must decode without running out of data and carry a believable time and battery level.
+     */
+    fun decodeChargeAppOrNull(app: ByteArray): ChargeFrame? = app.takeIf { it.isNotEmpty() }
+        ?.let { runCatching { decodeChargeApp(it) }.getOrNull() }
+        ?.takeIf { it.statusTime >= MIN_PLAUSIBLE_TIME_S && (it.powerLevelPrc ?: 0) <= 1000 }
+
+    /** 2020-01-01: a charging frame stamped earlier than this was not decoded right. */
+    private const val MIN_PLAUSIBLE_TIME_S = 1_577_836_800L
 
     fun decodeChargeApp(app: ByteArray): ChargeFrame {
         val r = BitReader(app)

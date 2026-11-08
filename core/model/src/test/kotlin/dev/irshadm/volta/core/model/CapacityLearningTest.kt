@@ -25,10 +25,10 @@ class CapacityLearningTest {
 
     @Test
     fun lowOrMissingReadingsGiveNoSample() {
-        assertNull(CapacityLearning.sample(12.0, 4.4))      // whole-percent rounding is too coarse this low
+        assertNull(CapacityLearning.sample(12.0, 4.4)) // whole-percent rounding is too coarse this low
         assertNull(CapacityLearning.sample(59.0, null))
         assertNull(CapacityLearning.sample(59.0, 0.0))
-        assertNull(CapacityLearning.sample(50.0, 90.0))     // 180 kWh is not a car
+        assertNull(CapacityLearning.sample(50.0, 90.0)) // 180 kWh is not a car
     }
 
     @Test
@@ -39,7 +39,7 @@ class CapacityLearningTest {
     @Test
     fun oneBadFrameCannotMoveTheMedian() {
         val samples = listOf(37.1, 37.0, 37.2, 55.0)
-        assertEquals(37.2, CapacityLearning.learned(samples)!!, 0.01)   // median of 37.1 and 37.2, to 0.1 kWh; the 55 is ignored
+        assertEquals(37.2, CapacityLearning.learned(samples)!!, 0.01) // median of 37.1 and 37.2, to 0.1 kWh; the 55 is ignored
         assertFalse(CapacityLearning.shouldReplace(37.1, 37.2))
     }
 

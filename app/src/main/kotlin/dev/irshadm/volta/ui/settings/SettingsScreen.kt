@@ -151,6 +151,8 @@ private fun Header(p: Page, onBack: () -> Unit) {
             }
         }
         Text(p.title, style = MaterialTheme.typography.headlineLarge, modifier = Modifier.padding(start = 4.dp, top = 2.dp))
+        // The version up front, so a bug report can say which build it came from.
+        if (p == Page.Main) Text("Volta ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodySmall, color = VoltaColors.Muted, modifier = Modifier.padding(start = 4.dp))
     }
 }
 
@@ -475,6 +477,7 @@ private fun MainPage(vm: SettingsViewModel, open: (Page) -> Unit) {
 @Composable
 private fun AccountPage(vm: SettingsViewModel) {
     val v by vm.vehicle.collectAsStateWithLifecycle()
+    val locale = androidx.compose.ui.platform.LocalLocale.current.platformLocale
     Group { Box(Modifier.padding(14.dp)) { MgAccountSection() } }
     Label("Car")
     // Once the car has been read enough, the pack size is measured from it (a Windsor Pro is not a Windsor 38)
@@ -496,7 +499,7 @@ private fun AccountPage(vm: SettingsViewModel) {
     }
     Note(
         if (measuredAt != null) {
-            "Measured from your car on " + java.text.SimpleDateFormat("d MMM", java.util.Locale.getDefault()).format(java.util.Date(measuredAt)) + ". It follows the car's own figure."
+            "Measured from your car on " + java.text.SimpleDateFormat("d MMM", locale).format(java.util.Date(measuredAt)) + ". It follows the car's own figure."
         } else {
             "Measured from your car once it has been read a few times."
         },

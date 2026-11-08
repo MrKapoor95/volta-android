@@ -131,7 +131,10 @@ fun carAlerts(v: VehicleStatus, now: Long, waitMin: Int, tyreChecks: List<TyreCa
         }
     }
     val soc = v.soc?.value?.socPercent
-    if (soc != null && soc < 15 && v.pluggedIn?.value != true) add(CarAlert(Tier.Act, "Battery low", "Battery ${soc.roundToInt()} %, not plugged in"))
+    // "Not plugged in" only when the car said so: some models never send the charging frame, so it's unknown.
+    if (soc != null && soc < 15 && v.pluggedIn?.value != true) {
+        add(CarAlert(Tier.Act, "Battery low", "Battery ${soc.roundToInt()} %" + if (v.pluggedIn?.value == false) ", not plugged in" else ""))
+    }
     // Check soon. A tyre under the placard target reads as a line with the number, the others and what to do.
     val tyres = v.tyrePsi?.value
     if (tyreChecks.isNotEmpty() && tyres != null) {
