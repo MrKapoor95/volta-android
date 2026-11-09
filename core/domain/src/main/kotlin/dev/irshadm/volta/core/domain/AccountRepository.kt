@@ -15,6 +15,12 @@ sealed interface SignInError {
     /** MG said no (wrong password, unregistered number, daily limit). Never retried automatically. */
     data class Rejected(val message: String) : SignInError
 
+    /**
+     * MG's sign-in service turned the attempt away without judging the password ("service is not available"): an
+     * MG outage, or a car on i-SMART 3.0 (Hector Tomahawk EV) that this sign-in doesn't serve. The password is kept.
+     */
+    data class ServiceUnavailable(val message: String) : SignInError
+
     /** Too many sign-ins this hour; the next one is allowed at [retryAtMillis]. */
     data class Throttled(val retryAtMillis: Long) : SignInError
 

@@ -218,6 +218,15 @@ class SettingsRepository @Inject constructor(private val store: DataStore<Prefer
         return changed
     }
 
+    /** Another car was picked: forget the pack size learned from the last one, so this car's is measured afresh. */
+    suspend fun forgetLearnedCapacity() {
+        store.edit { p ->
+            p.remove(CAPACITY)
+            p.remove(CAPACITY_SAMPLES)
+            p.remove(CAPACITY_LEARNED_AT)
+        }
+    }
+
     suspend fun save(profile: VehicleProfile) {
         require(profile.validate().isEmpty())
         store.edit { p ->

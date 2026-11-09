@@ -153,6 +153,7 @@ private fun CarHero() {
 
 private fun errorTitle(error: SignInError) = when (error) {
     is SignInError.Rejected -> "MG rejected the sign-in"
+    is SignInError.ServiceUnavailable -> "MG's sign-in service isn't answering"
     is SignInError.Throttled -> "Too many sign-ins this hour"
     SignInError.NotOwner -> "This is a shared account"
     SignInError.Offline -> "Can't reach MG"
@@ -161,6 +162,8 @@ private fun errorTitle(error: SignInError) = when (error) {
 
 private fun errorBody(error: SignInError) = when (error) {
     is SignInError.Rejected -> error.message
+    is SignInError.ServiceUnavailable -> "MG said: ${error.message}\n\nYour password wasn't rejected. If this is an MG outage, try again later. " +
+        "If your car is a Hector Tomahawk EV, it's on MG's newer i-SMART 3.0, which Volta can't sign in to yet."
     is SignInError.Throttled -> "To protect your account, Volta waits until ${DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(error.retryAtMillis))} before trying again."
     SignInError.NotOwner -> "Battery and charging data only reach the owner's account. Sign in with the number the car is registered to."
     SignInError.Offline -> "Check your connection and try again."

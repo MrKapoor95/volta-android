@@ -7,6 +7,8 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.irshadm.volta.core.ismart.MgIsmartClient
+import dev.irshadm.volta.data.ismart.CAR_PREFS
+import dev.irshadm.volta.data.ismart.CAR_VIN
 import dev.irshadm.volta.data.ismart.SecureStore
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
@@ -22,9 +24,13 @@ object IsmartModule {
 
     @Provides
     @Singleton
-    fun ismartClient(http: OkHttpClient, secure: SecureStore): MgIsmartClient = MgIsmartClient(
-        http = http.newBuilder().readTimeout(40, TimeUnit.SECONDS).build(),
-        credentials = { secure.credentials },
-        sessions = secure,
-    )
+    fun ismartClient(@ApplicationContext context: Context, http: OkHttpClient, secure: SecureStore): MgIsmartClient {
+        val carPrefs = context.getSharedPreferences(CAR_PREFS, Context.MODE_PRIVATE)
+        return MgIsmartClient(
+            http = http.newBuilder().readTimeout(40, TimeUnit.SECONDS).build(),
+            credentials = { secure.credentials },
+            sessions = secure,
+            preferredVin = { carPrefs.getString(CAR_VIN, null) },
+        )
+    }
 }

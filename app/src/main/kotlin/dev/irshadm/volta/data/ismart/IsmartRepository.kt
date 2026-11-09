@@ -7,6 +7,8 @@ import dev.irshadm.volta.core.ismart.LoginRejectedException
 import dev.irshadm.volta.core.ismart.LoginThrottledException
 import dev.irshadm.volta.core.ismart.MgCrypto
 import dev.irshadm.volta.core.ismart.MgIsmartClient
+import dev.irshadm.volta.core.ismart.NotOwnerException
+import dev.irshadm.volta.core.ismart.Vehicle
 import dev.irshadm.volta.core.ismart.RemoteCommand
 import dev.irshadm.volta.core.ismart.SignedOutException
 import dev.irshadm.volta.core.model.BodyStatus
@@ -76,6 +78,13 @@ class IsmartRepository @Inject constructor(
     private val _car = MutableStateFlow(CarIdentity.saved(context))
     val car: StateFlow<CarIdentity> = _car
 
+    /** Every car on the account, for the picker in Settings (shown only when there's more than one). */
+    private val _vehicles = MutableStateFlow<List<Vehicle>>(emptyList())
+    val vehicles: StateFlow<List<Vehicle>> = _vehicles
+
+    /** The VIN reads and commands go to. */
+    val selectedVin: String? get() = client.vin
+
     private val _command = MutableStateFlow<CommandState>(CommandState.Idle)
     val command: StateFlow<CommandState> = _command
 
@@ -115,9 +124,13 @@ class IsmartRepository @Inject constructor(
         try {
             client.signIn()
             val vehicles = client.vehicles()
-            val car = CarIdentity.of(vehicles.firstOrNull { it.vin == client.vin } ?: vehicles.firstOrNull())
+            val chosen = vehicles.firstOrNull { it.vin == client.vin } ?: vehicles.firstOrNull()
+            // The client picks an owned car when there is one, so a shared car here means the account owns none.
+            if (chosen?.isSubAccount == true) throw NotOwnerException()
+            val car = CarIdentity.of(chosen)
             carPrefs.edit().putString(CAR_NAME, car.name).apply()
             _car.value = car
+            _vehicles.value = vehicles
         } catch (e: Exception) {
             secure.credentials = null
             secure.save(null)
@@ -147,6 +160,30 @@ class IsmartRepository @Inject constructor(
         }
     }
 
+    /** Fetches the account's cars for the Settings picker. Failures leave the last list in place. */
+    suspend fun loadVehicles() {
+        if (link.value !is LinkState.Connected) return
+        runCatching { client.vehicles() }.onSuccess { _vehicles.value = it }
+    }
+
+    /**
+     * Switches reads and commands to another car on the account. The dashboard, cache and learned pack size belong
+     * to the last car, so they're cleared and the new car is read straight away. Shared cars can't be picked.
+     */
+    suspend fun selectCar(vin: String) {
+        val v = _vehicles.value.firstOrNull { it.vin == vin && !it.isSubAccount } ?: return
+        if (v.vin == client.vin) return
+        val car = CarIdentity.of(v)
+        carPrefs.edit().putString(CAR_VIN, v.vin).putString(CAR_NAME, car.name).apply()
+        client.selectVehicle(v.vin)
+        _car.value = car
+        _status.value = null
+        cacheFile.delete()
+        runCatching { settings.forgetLearnedCapacity() }
+        dev.irshadm.volta.widget.VoltaWidget.updateAsync(context)
+        refresh()
+    }
+
     /** [keepReadings]: leave the last status in place (a rejected saved password should not blank the dashboard). */
     fun signOut(keepReadings: Boolean = false) {
         client.signOut()
@@ -159,6 +196,7 @@ class IsmartRepository @Inject constructor(
             _rejection.value = null
             carPrefs.edit().clear().apply()
             _car.value = CarIdentity.Unknown
+            _vehicles.value = emptyList()
         }
         _link.value = LinkState.SignedOut
         _reconnectDismissed.value = false
@@ -167,7 +205,8 @@ class IsmartRepository @Inject constructor(
 
     /**
      * Signs in again with the saved login. Stays in [LinkState.NeedsReconnect] when it can't (throttled, no
-     * network), and only a rejected password clears the login and sends you to the sign-in screen.
+     * network, MG's sign-in service unavailable), and only a rejected password clears the login and sends you to the
+     * sign-in screen.
      */
     suspend fun reconnect() {
         val phone = (link.value as? LinkState.NeedsReconnect)?.phone ?: return
@@ -238,6 +277,7 @@ class IsmartRepository @Inject constructor(
             if (_car.value == CarIdentity.Unknown) {
                 runCatching {
                     val vehicles = client.vehicles()
+                    _vehicles.value = vehicles
                     val car = CarIdentity.of(vehicles.firstOrNull { it.vin == client.vin } ?: vehicles.firstOrNull())
                     if (car != CarIdentity.Unknown) {
                         carPrefs.edit().putString(CAR_NAME, car.name).apply()
@@ -354,6 +394,7 @@ class IsmartRepository @Inject constructor(
 
     private fun friendly(e: Throwable): String = when (e) {
         is LoginRejectedException -> "MG rejected the sign-in: ${e.message}"
+        is dev.irshadm.volta.core.ismart.LoginUnavailableException -> e.userMessage
         is LoginThrottledException -> e.message ?: "Signed in too often this hour"
         is SignedOutException -> "Signed out by another app"
         is IsmartException -> e.userMessage ?: "MG i-SMART error"

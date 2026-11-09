@@ -14,6 +14,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,6 +30,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.irshadm.volta.core.designsystem.VoltaColors
+import dev.irshadm.volta.core.ismart.Vehicle
+import dev.irshadm.volta.data.ismart.CarIdentity
 import dev.irshadm.volta.data.ismart.IsmartRepository
 import dev.irshadm.volta.data.ismart.LinkState
 import dev.irshadm.volta.feature.onboarding.pin.ControlPinForm
@@ -67,6 +70,7 @@ fun MgAccountSection(vm: AccountViewModel = hiltViewModel()) {
                         else -> ""
                     }
                     Text("Signed in as +91 $number", style = MaterialTheme.typography.titleSmall)
+                    CarPicker(vm.ismart)
                     if (link is LinkState.NeedsReconnect) {
                         Text("Signed out by another app.", style = MaterialTheme.typography.bodySmall, color = VoltaColors.Amber)
                         VoltaButton("Reconnect", { scope.launch { vm.ismart.reconnect() } }, Modifier.fillMaxWidth())
@@ -90,6 +94,61 @@ fun MgAccountSection(vm: AccountViewModel = hiltViewModel()) {
                     }, Modifier.fillMaxWidth(), style = VoltaButtonStyle.Secondary)
                 }
             }
+        }
+    }
+}
+
+/** Shown only when the account has more than one car: which one the dashboard, alerts and commands use. */
+@Composable
+private fun CarPicker(ismart: IsmartRepository) {
+    val vehicles by ismart.vehicles.collectAsStateWithLifecycle()
+    val car by ismart.car.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    var switching by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { if (vehicles.isEmpty()) ismart.loadVehicles() }
+    if (vehicles.size < 2) return
+    // Re-read when the car changes, so the "In use" row follows the switch.
+    val selected = remember(car, vehicles) { ismart.selectedVin }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Car", style = MaterialTheme.typography.titleSmall)
+        Text(
+            "This account has ${vehicles.size} cars. Volta reads and controls one at a time.",
+            style = MaterialTheme.typography.bodySmall,
+            color = VoltaColors.Muted,
+        )
+        vehicles.forEach { v ->
+            val pick = {
+                switching = true
+                scope.launch {
+                    try {
+                        ismart.selectCar(v.vin)
+                    } finally {
+                        switching = false
+                    }
+                }
+                Unit
+            }
+            CarRow(v, v.vin == selected, enabled = !switching, onPick = pick)
+        }
+    }
+}
+
+@Composable
+private fun CarRow(v: Vehicle, selected: Boolean, enabled: Boolean, onPick: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.weight(1f)) {
+            Text(CarIdentity.of(v).name, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "VIN •••${v.vin.takeLast(6)}" + if (v.isSubAccount) " · shared with you" else "",
+                style = MaterialTheme.typography.bodySmall,
+                color = VoltaColors.Muted,
+            )
+        }
+        when {
+            selected -> Text("In use", style = MaterialTheme.typography.bodyMedium, color = VoltaColors.Green)
+            v.isSubAccount -> Text("Owner only", style = MaterialTheme.typography.bodySmall, color = VoltaColors.Muted)
+            !enabled -> CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            else -> VoltaButton("Use this", onPick, style = VoltaButtonStyle.Secondary)
         }
     }
 }

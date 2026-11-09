@@ -36,6 +36,21 @@ class LoginRejectedException(message: String) : IsmartException(message)
 /** The session was taken (the MG app signed in) or expired; the saved login is still good. */
 open class SignedOutException(message: String = "Signed out by another app") : IsmartException(message)
 
+/**
+ * MG's login service turned the sign-in away without judging the password ("the service is not available, please try
+ * again later"). Seen during MG outages, and on accounts whose car is on MG's newer i-SMART 3.0 (a Hector Tomahawk EV),
+ * which this login doesn't serve. The saved login is still good: never treat this as a wrong password.
+ */
+class LoginUnavailableException(message: String) : IsmartException(message) {
+    override val userMessage: String get() = "MG's sign-in service isn't answering: $message"
+
+    companion object {
+        private val PATTERN = Regex("not available|unavailable|try again later|temporarily", RegexOption.IGNORE_CASE)
+
+        fun matches(message: String?): Boolean = message != null && PATTERN.containsMatchIn(message)
+    }
+}
+
 /** More than [MgIsmartClient.MAX_LOGINS_PER_HOUR] logins in an hour: the apps are taking the session from each other. Try again at [retryAtMillis]. */
 class LoginThrottledException(val retryAtMillis: Long) : SignedOutException("Signed in too often this hour")
 
@@ -82,6 +97,8 @@ class MgIsmartClient(
     private val credentials: () -> Credentials?,
     private val sessions: SessionStore,
     deviceIdPrefix: String = "volta-android-",
+    /** The car chosen in Settings when the account has more than one; null or unknown → the first owned car. */
+    private val preferredVin: () -> String? = { null },
     private val clock: () -> Long = System::currentTimeMillis,
     private val tapLoginUrl: String = "https://iov-tap.mgindia.co.in/TAP.Web/ota.mp",
     private val tapStatusUrl: String = "https://iov-tap.mgindia.co.in/TAP.Web/ota.mpv21",
@@ -143,10 +160,12 @@ class MgIsmartClient(
                         return r.session
                     }
 
-                    is LoginFrame.Result.Rejected -> throw LoginRejectedException(r.message)
+                    is LoginFrame.Result.Rejected -> throw if (LoginUnavailableException.matches(r.message)) LoginUnavailableException(r.message) else LoginRejectedException(r.message)
                 }
             } catch (e: LoginRejectedException) {
                 throw e // each POST counts against the daily quota
+            } catch (e: LoginUnavailableException) {
+                throw e // MG answered: asking again now only spends another attempt
             } catch (e: CancellationException) {
                 throw e // the caller went away: stop, don't log in again on its behalf
             } catch (e: Exception) {
@@ -228,8 +247,16 @@ class MgIsmartClient(
                 o["isSubaccount"]?.jsonPrimitive?.booleanOrNull ?: false,
             )
         }
-        if (vin == null || vehicles.none { it.vin == vin }) vin = vehicles.firstOrNull()?.vin
+        vin = pickVin(vehicles, preferredVin(), vin)
         vehicles
+    }
+
+    /**
+     * Reads and commands go to [vin] from now on (the car picked in Settings). The caller saves the choice so
+     * [preferredVin] returns it after a restart.
+     */
+    fun selectVehicle(vin: String) {
+        this.vin = vin
     }
 
     // ---------------- status ----------------
@@ -402,6 +429,12 @@ class MgIsmartClient(
     }
 
     companion object {
+        /** The car to use: the preferred one if it's still on the account, else the current one, else the first the account owns. */
+        fun pickVin(vehicles: List<Vehicle>, preferred: String?, current: String?): String? =
+            vehicles.firstOrNull { it.vin == preferred }?.vin
+                ?: vehicles.firstOrNull { it.vin == current }?.vin
+                ?: (vehicles.firstOrNull { !it.isSubAccount } ?: vehicles.firstOrNull())?.vin
+
         const val USER_AGENT = "CER_IKE_01/2.3.0 (iPad; iOS 26.3; Scale/2.00)"
         const val STATUS_ATTEMPTS = 10
         const val COMMAND_ATTEMPTS = 15
