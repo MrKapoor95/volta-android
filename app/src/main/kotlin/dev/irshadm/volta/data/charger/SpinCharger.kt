@@ -68,9 +68,19 @@ class SpinCharger @Inject constructor(@ApplicationContext private val context: C
         log(msg)
     }
 
-    /** Steps and frames to logcat (tag VoltaSpin) for troubleshooting. */
+    /**
+     * Steps and frames to logcat (tag VoltaSpin) for troubleshooting, in debug builds only. The charger's session
+     * password travels inside the frames, so it is masked even there: logcat is readable over adb and in bug reports.
+     */
     private fun log(line: String) {
-        android.util.Log.d("VoltaSpin", line)
+        if (!dev.irshadm.volta.BuildConfig.DEBUG) return
+        val pw = password
+        val safe = when {
+            hideRx && line.startsWith("RX") -> "RX <password reply hidden>"
+            pw.isNullOrEmpty() -> line
+            else -> line.replace(pw, "<password>", ignoreCase = true)
+        }
+        android.util.Log.d("VoltaSpin", safe)
     }
     private val _saved = MutableStateFlow(savedCharger())
 
@@ -80,6 +90,9 @@ class SpinCharger @Inject constructor(@ApplicationContext private val context: C
     private var gatt: BluetoothGatt? = null
     private var channel: BluetoothGattCharacteristic? = null
     private var password: String? = null
+
+    /** True while the password request is out, so its reply never reaches logcat. */
+    @Volatile private var hideRx = false
     private var reply: CompletableDeferred<String>? = null
 
     /** Reply pieces since the last command (a long reply can arrive in several notifications). */
@@ -166,7 +179,12 @@ class SpinCharger @Inject constructor(@ApplicationContext private val context: C
         password = ""
         // Same order as the Spin app after connecting: board version first (answer only logged), then the password.
         send(BOARD_VERSION, prefix = false)
-        val answer = send(PASSWORD_REQUEST, prefix = false)
+        hideRx = true
+        val answer = try {
+            send(PASSWORD_REQUEST, prefix = false)
+        } finally {
+            hideRx = false
+        }
         // As the Spin app: the reply must start 10AC3200, and the password is everything from character 10.
         val pw = answer?.takeIf { it.startsWith("10AC3200") && it.length > 10 }?.substring(10)
         log("Password ${if (pw == null) "not found" else "received (${pw.length} chars)"}")

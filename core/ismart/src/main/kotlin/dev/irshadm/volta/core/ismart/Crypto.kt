@@ -37,7 +37,10 @@ object MgCrypto {
         return String(c.doFinal(cipherHex.trim().hexToBytes()))
     }
 
-    /** The control PIN is never stored; only this hash is. */
+    /**
+     * The hash MG's protocol expects: MD5 of the PIN plus "00". A 4-digit PIN has only 10,000 values, so this hash is
+     * as good as the PIN itself: anyone holding it can find the PIN instantly. Store it only encrypted (SecureStore).
+     */
     fun pinHash(pin: String): String {
         require(Regex("\\d{4}").matches(pin)) { "Control PIN must be exactly 4 digits" }
         return md5Hex(pin + "00").uppercase()
