@@ -4,6 +4,7 @@
 
 package dev.irshadm.volta.core.ismart
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
@@ -115,7 +116,7 @@ class MgIsmartClient(
 
     /** Logs in explicitly (first sign-in or "Reconnect"). Resets the tug-of-war guard. */
     suspend fun signIn(): LoginFrame.Session = mutex.withLock {
-        recentLogins.clear()
+        synchronized(recentLogins) { recentLogins.clear() }
         loginLocked()
     }
 
@@ -127,9 +128,11 @@ class MgIsmartClient(
     private suspend fun loginLocked(): LoginFrame.Session {
         val creds = credentials() ?: throw IsmartException("Not signed in to MG i-SMART")
         val now = clock()
-        while (recentLogins.isNotEmpty() && now - recentLogins.first() > 3_600_000) recentLogins.removeFirst()
-        if (recentLogins.size >= MAX_LOGINS_PER_HOUR) throw LoginThrottledException(recentLogins.first() + 3_600_000)
-        recentLogins.addLast(now)
+        synchronized(recentLogins) {
+            while (recentLogins.isNotEmpty() && now - recentLogins.first() > 3_600_000) recentLogins.removeFirst()
+            if (recentLogins.size >= MAX_LOGINS_PER_HOUR) throw LoginThrottledException(recentLogins.first() + 3_600_000)
+            recentLogins.addLast(now)
+        }
         var last: Exception? = null
         repeat(3) { attempt ->
             val body = LoginFrame.build(creds.phone, creds.password, MgCrypto.deviceId(creds.phone, prefix), nowS())
@@ -144,7 +147,12 @@ class MgIsmartClient(
                 }
             } catch (e: LoginRejectedException) {
                 throw e // each POST counts against the daily quota
+            } catch (e: CancellationException) {
+                throw e // the caller went away: stop, don't log in again on its behalf
             } catch (e: Exception) {
+                // Retry only when the login never reached MG (no connection). A timeout or an unreadable answer may
+                // mean MG already counted this attempt, and each counted attempt uses up the daily limit.
+                if (!neverSent(e)) throw IsmartException("Login failed: ${e.message}", e)
                 last = e
                 if (attempt < 2) delay(1_500)
             }
@@ -152,12 +160,17 @@ class MgIsmartClient(
         throw IsmartException("Login failed: ${last?.message}", last)
     }
 
+    /** True when [e] means the request never left the phone: no route, no DNS, connection refused. */
+    private fun neverSent(e: Throwable): Boolean = generateSequence(e) { it.cause }.any {
+        it is java.net.ConnectException || it is java.net.UnknownHostException || it is java.net.NoRouteToHostException
+    }
+
     private suspend fun session(): LoginFrame.Session = sessions.load() ?: loginLocked()
 
     /** When the login guard lets the next login through, or null if one is allowed now. */
     fun nextLoginAllowedAt(): Long? {
         val now = clock()
-        val recent = recentLogins.filter { now - it <= 3_600_000 }
+        val recent = synchronized(recentLogins) { recentLogins.filter { now - it <= 3_600_000 } }
         return if (recent.size >= MAX_LOGINS_PER_HOUR) recent.first() + 3_600_000 else null
     }
 

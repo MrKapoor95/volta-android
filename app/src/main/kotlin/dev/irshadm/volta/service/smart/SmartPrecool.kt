@@ -333,6 +333,7 @@ private fun postSuggestion(ctx: Context, insideC: Double, outside: Int, place: S
         8,
         Intent(Intent.ACTION_VIEW, Uri.parse("volta://action/precool"), ctx, QuickActionActivity::class.java)
             .putExtra("suggestion_place", place).putExtra("suggestion_reason", reason)
+            .putExtra("suggestion_token", Feedback.issueSuggestionToken(ctx))
             .putExtra("suggestion_usual", slot?.let { "%d:%02d".format(((it.minuteOfDay / 60 + 11) % 12) + 1, it.minuteOfDay % 60) })
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,

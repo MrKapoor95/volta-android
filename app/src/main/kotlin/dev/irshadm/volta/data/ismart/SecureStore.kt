@@ -15,7 +15,8 @@ import javax.crypto.spec.GCMParameterSpec
 
 /**
  * Small encrypted key-value store: AES-256-GCM with a non-exportable Android Keystore key.
- * Holds the MG credentials, the session token and the control-PIN hash (never the PIN itself).
+ * Holds the MG credentials, the session token and the control-PIN hash. The hash is PIN-equivalent (see
+ * MgCrypto.pinHash), which is why it lives here and not in plain preferences.
  * Excluded from backups (see data_extraction_rules.xml).
  */
 class SecureStore(context: Context) : SessionStore {

@@ -87,6 +87,30 @@ class ClientFlowTest {
     }
 
     @Test
+    fun anUnreadableLoginAnswerIsNotRetried() = runTest {
+        // MG received the login (it answered), so it may have counted it: a second POST would spend another attempt.
+        server.enqueue(text("0000"))
+        assertFailsWith<IsmartException> { client(InMemorySessionStore(null)).signIn() }
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun aLoginThatNeverConnectedIsRetried() = runTest {
+        val closed = MockWebServer().apply { start() }
+        val deadUrl = closed.url("/login").toString()
+        closed.close() // nothing listens there now: connection refused, the login never reached MG
+        val c = MgIsmartClient(
+            http = OkHttpClient(),
+            credentials = { Credentials("9876543210", "secret-pass") },
+            sessions = InMemorySessionStore(null),
+            tapLoginUrl = deadUrl,
+        )
+        val e = assertFailsWith<IsmartException> { c.signIn() }
+        assertTrue(e.message!!.startsWith("Login failed"))
+        assertTrue(generateSequence<Throwable>(e) { it.cause }.any { it is java.net.ConnectException })
+    }
+
+    @Test
     fun noCredentialsMeansNotSignedIn() = runTest {
         val e = assertFailsWith<IsmartException> { client(InMemorySessionStore(null), creds = null).read() }
         assertTrue(e.message!!.contains("Not signed in"))

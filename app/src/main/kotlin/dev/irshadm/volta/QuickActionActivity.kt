@@ -91,8 +91,14 @@ class QuickActionActivity : FragmentActivity() {
         const val COMFY_BELOW = dev.irshadm.volta.service.smart.Cooling.COMFY_BELOW
     }
 
-    /** Set when opened from a smart pre-cool suggestion: answers teach the per-place threshold. */
-    private val suggestionPlace: String? get() = intent?.getStringExtra("suggestion_place")
+    /**
+     * Set when opened from a smart pre-cool suggestion: answers teach the per-place threshold. Only trusted with the
+     * latest suggestion's token, since this activity is exported and any app could pass a place.
+     */
+    private val suggestionPlace: String? by lazy {
+        intent?.takeIf { dev.irshadm.volta.service.smart.Feedback.isSuggestionToken(this, it.getStringExtra("suggestion_token")) }
+            ?.getStringExtra("suggestion_place")
+    }
     private var answered = false
 
     private fun learn(accepted: Boolean) {

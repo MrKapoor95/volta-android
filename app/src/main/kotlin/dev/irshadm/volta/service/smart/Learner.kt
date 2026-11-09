@@ -30,6 +30,20 @@ object Feedback {
 
     private fun key(place: String) = "place:" + place.lowercase()
 
+    private const val SUGGESTION_TOKEN = "suggestion_token"
+
+    /**
+     * A fresh random token for the suggestion notification being posted. The pre-cool sheet is exported (shortcuts
+     * and Routines open it), so it only learns from a place that arrives with the latest token: another app can't
+     * open it with a made-up place and skew what Volta learns.
+     */
+    fun issueSuggestionToken(context: Context): String = java.util.UUID.randomUUID().toString().also {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(SUGGESTION_TOKEN, it).apply()
+    }
+
+    fun isSuggestionToken(context: Context, token: String?): Boolean =
+        token != null && token == context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(SUGGESTION_TOKEN, null)
+
     fun get(context: Context, place: String): PlaceMemory = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(key(place), null)
         ?.let { runCatching { json.decodeFromString<PlaceMemory>(it) }.getOrNull() } ?: PlaceMemory()
 
