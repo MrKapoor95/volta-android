@@ -6,6 +6,9 @@ import dev.irshadm.volta.core.ismart.Vehicle
 internal const val CAR_PREFS = "car"
 internal const val CAR_NAME = "car.name"
 
+/** The VIN picked in Settings when the account has more than one car. */
+internal const val CAR_VIN = "car.vin"
+
 /**
  * The models Volta has pictures of. MG's model name can carry the trim ("COMET EV EXCLUSIVE FC") and its series can be
  * a code ("E230"), so [pattern] is tried against both. The ZS Astor is a petrol car, not the ZS EV.
